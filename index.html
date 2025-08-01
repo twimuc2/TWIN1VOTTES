@@ -1,0 +1,322 @@
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Voting Tool</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #121212;
+      color: #e0e0e0;
+      text-align: center;
+      direction: rtl;
+      margin: 0;
+      padding: 0;
+      opacity: 0;
+      transition: opacity 0.6s ease;
+    }
+    body.loaded {
+      opacity: 1;
+    }
+
+    h2 {
+      margin-top: 30px;
+      color: #00e5ff;
+      font-size: 28px;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 30px auto;
+      padding: 20px;
+      background: #1e1e1e;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
+    }
+
+    input, textarea, button {
+      width: 100%;
+      padding: 12px;
+      margin: 12px 0;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+
+    input, textarea {
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #333;
+    }
+
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: #00e5ff;
+      box-shadow: 0 0 6px #00e5ff;
+    }
+
+    button {
+      background: linear-gradient(135deg, #00e5ff, #00bcd4);
+      color: #000;
+      font-weight: bold;
+      transition: background 0.3s ease;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) {
+      background: linear-gradient(135deg, #00bcd4, #0097a7);
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    button.loading::after {
+      content: '⏳';
+      margin-right: 8px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg);}
+      100% { transform: rotate(360deg);}
+    }
+
+    #status {
+      margin-top: 20px;
+      text-align: right;
+      padding: 15px;
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 8px;
+      height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #0f0;
+    }
+
+    ::placeholder {
+      color: #999;
+    }
+
+    .row-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        margin: 10px;
+        padding: 15px;
+      }
+
+      .row-buttons {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      h2 {
+        font-size: 22px;
+      }
+
+      #status {
+        height: 200px;
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body onload="document.body.classList.add('loaded')">
+
+  <h2>🌀 كلشي إيزي - نظام التصويت التلقائي</h2>
+
+  <div class="container">
+    <input type="text" id="channel" value="FreeZe" placeholder="🧑‍💻 اسم القناة" readonly />
+    
+    <textarea id="tokens" placeholder="🔑 أدخل التوكنات، واحدة في كل سطر"></textarea>
+    <input type="file" accept=".txt" onchange="loadTokensFromFile(event)" />
+
+    <textarea id="votePlan" placeholder="🗳️ أدخل خطة التصويت مثل: 1=20,2=10,3=5"></textarea>
+
+    <div class="row-buttons">
+      <button id="startBtn" onclick="startMultiVoting()">▶️ بدء التصويت التلقائي</button>
+      <button id="stopBtn" onclick="stopVoting()" disabled>⏹️ إيقاف التصويت</button>
+      <button onclick="downloadStatus()">💾 تحميل السجل</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <script>
+    let stopRequested = false;
+
+    function stopVoting() {
+      stopRequested = true;
+      document.getElementById('stopBtn').disabled = true;
+      appendStatus("\n⏹️ تم طلب إيقاف التصويت...");
+    }
+
+    function appendStatus(text) {
+      const status = document.getElementById('status');
+      status.innerText += text;
+      status.scrollTop = status.scrollHeight;
+    }
+
+    function loadTokensFromFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById("tokens").value = e.target.result;
+      };
+      reader.readAsText(file);
+    }
+
+    function downloadStatus() {
+      const text = document.getElementById("status").innerText;
+      const blob = new Blob([text], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'vote_status.html';
+      a.click();
+    }
+
+    function shuffleArray(array) {
+      const copy = [...array];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    async function startMultiVoting() {
+      stopRequested = false;
+      const channel = document.getElementById("channel").value.trim();
+      const tokensRaw = document.getElementById("tokens").value.trim();
+      const votePlanRaw = document.getElementById("votePlan").value.trim();
+      const status = document.getElementById("status");
+      const startBtn = document.getElementById('startBtn');
+
+      if (!channel || !tokensRaw || !votePlanRaw) {
+        alert("⚠️ تأكد من ملء جميع الحقول!");
+        return;
+      }
+
+      const tokens = tokensRaw.split('\n').map(t => t.trim()).filter(Boolean);
+      const votePlan = {};
+
+      try {
+        votePlanRaw.split(',').forEach(pair => {
+          const [indexStr, countStr] = pair.split('=').map(s => s.trim());
+          const index = parseInt(indexStr) - 1;
+          const count = parseInt(countStr);
+          if (isNaN(index) || isNaN(count)) throw new Error();
+          votePlan[index] = count;
+        });
+      } catch {
+        alert("⚠️ تنسيق خطة التصويت غير صحيح. استخدم مثل: 1=10,2=5");
+        return;
+      }
+
+      let poll;
+      try {
+        const pollRes = await fetch(`https://kick.com/api/v2/channels/${channel}/polls`);
+        const pollData = await pollRes.json();
+        poll = pollData?.data?.poll;
+
+        if (!poll || !poll.options) {
+          appendStatus("❌ لا يوجد استطلاع نشط حالياً.\n");
+          return;
+        }
+      } catch (e) {
+        appendStatus("❌ فشل في جلب الاستطلاع.\n");
+        return;
+      }
+
+      const totalVotes = Object.values(votePlan).reduce((a, b) => a + b, 0);
+      if (tokens.length < totalVotes) {
+        alert(`⚠️ عدد التوكنات (${tokens.length}) أقل من الأصوات المطلوبة (${totalVotes})`);
+        return;
+      }
+
+      const voteQueue = [];
+      for (const [indexStr, count] of Object.entries(votePlan)) {
+        const index = parseInt(indexStr);
+        const option = poll.options[index];
+        if (!option) {
+          alert(`❌ لا يوجد خيار برقم ${index + 1}`);
+          return;
+        }
+        for (let i = 0; i < count; i++) {
+          voteQueue.push({ optionId: option.id, label: option.label });
+        }
+      }
+
+      voteQueue.sort(() => Math.random() - 0.5);
+
+      let remainingTokens = shuffleArray(tokens);
+      const tasks = voteQueue.map((vote) => {
+        if (remainingTokens.length === 0) remainingTokens = shuffleArray(tokens);
+        const token = remainingTokens.pop();
+        return { ...vote, token };
+      });
+
+      startBtn.disabled = true;
+      startBtn.classList.add("loading");
+      document.getElementById('stopBtn').disabled = false;
+      status.innerText = `🚀 بدء التصويت...\n\n`;
+
+      for (let i = 0; i < tasks.length; i += 10) {
+        if (stopRequested) {
+          appendStatus("\n⏹️ تم الإيقاف.\n");
+          break;
+        }
+
+        const group = tasks.slice(i, i + 10);
+        appendStatus(`🔄 مجموعة ${Math.floor(i / 3) + 1}:\n`);
+
+        await Promise.all(group.map(async ({ token, optionId, label }, index) => {
+          appendStatus(` - توكن ${i + index + 1} → "${label}"... `);
+          try {
+            const res = await fetch(`https://kick.com/api/v2/channels/${channel}/polls/vote`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+              },
+              body: JSON.stringify({ id: optionId })
+            });
+
+            const raw = await res.text();
+            try {
+              const json = JSON.parse(raw);
+              if (json?.status?.code === 200) {
+                appendStatus("✅\n");
+              } else {
+                appendStatus(`❌ ${JSON.stringify(json)}\n`);
+              }
+            } catch {
+              appendStatus(`❌ رد غير مفهوم: ${raw}\n`);
+            }
+          } catch (err) {
+            appendStatus(`❌ خطأ: ${err.message}\n`);
+          }
+        }));
+
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      appendStatus("\n🎯 انتهى التصويت.");
+      startBtn.disabled = false;
+      startBtn.classList.remove("loading");
+      document.getElementById('stopBtn').disabled = true;
+    }
+  </script>
+
+</body>
